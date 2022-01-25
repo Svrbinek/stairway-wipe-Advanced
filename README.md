@@ -5,3 +5,5 @@ The effects of the blue extreme LEDs start automatically when the effect ends wi
 This staircase contains 15 steps of 60 LEDs SK6812 on each step (1 meter).
 The trigger is controlled by VL53L0X 2x 2 sensors (top and bottom) and by ESP Home, the logic is in Node RED and everything under Home assistant.
 Therefore, 2 ESP32 modules are required. One is for WLED and the other for sensors.
+
+sample https://youtu.be/fVVrSglzSgY

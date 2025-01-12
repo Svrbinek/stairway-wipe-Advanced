@@ -1,255 +1,226 @@
-#pragma once
 #include "wled.h"
 
 /*
- * Uživatelské modifikace (Usermods) umožňují přidat vlastní funkčnost do WLED jednodušeji.
- * Více informací: https://github.com/Aircoookie/WLED/wiki/Add-own-functionality
- *
- * Toto je příklad uživatelského módu pro efekt "stírání schodů".
+ * Usermods allow you to add own functionality to WLED more easily
+ * See: https://github.com/Aircoookie/WLED/wiki/Add-own-functionality
+ * 
+ * This is Stairway-Wipe as a v2 usermod.
+ * 
+ * Using this usermod:
+ * 1. Copy the usermod into the sketch folder (same folder as wled00.ino)
+ * 2. Register the usermod by adding #include "stairway-wipe-usermod-v2.h" in the top and registerUsermod(new StairwayWipeUsermod()) in the bottom of usermods_list.cpp
  */
 
 class StairwayWipeUsermod : public Usermod {
   private:
-    // Proměnné
+    //Private class members. You can declare variables and functions only accessible to your usermod here
     unsigned long lastTime = 0;
-    unsigned long stateStartTime = 0; // Čas zahájení aktuálního stavu
-    byte wipeState = 0; // 0: neaktivní, 1: stírání, 2: statický efekt
+    byte wipeState = 0; //0: inactive 1: wiping 2: solid
     unsigned long timeStaticStart = 0;
     uint16_t previousUserVar0 = 0;
+//    uint16_t uv0 = 0;
+//    uint16_t puv0 = 0;
+//    byte wipest = 0;
+//    byte prvni_vypis = 1;
 
-    byte lastWipeState = 255; // Poslední uložený stav, pro kontrolu změny
-    uint16_t lastUserVar0 = 0; // Poslední uložená hodnota userVar0
-    uint16_t lastPreviousUserVar0 = 0; // Poslední hodnota previousUserVar0
-
-    // Odkomentujte, pokud chcete reverzní efekt při vypínání
-    #define STAIRCASE_WIPE_OFF
-
-    // Počet stupňů (segmentů)
-    uint8_t numSteps = 15;
-    // Počet LED na stupeň
-    uint16_t ledsPerStep = 60;
-    // Barva pro okrajové LED
-    uint32_t edgeColor = 0x0000FF;
-    // Barva pro přechod
-    uint32_t fadeColor = 0xFFFFFF;
-    // Zpoždění pro přechod v ms
-    uint16_t fadeDelay = 50;
-    // Inkrement jasu pro přechod
-    uint16_t fadeIncrement = 10;
-
-    // Pole pro sledování aktivity a jasu každého stupně
-    bool isActive[15] = {false};
-    bool isFadingIn[15] = {false};
-    uint8_t currentBrightness[15] = {0};
-
-    // Vrátí začáteční index LED pro daný stupeň
-    uint16_t getStepStartIndex(uint8_t step) {
-        return step * ledsPerStep;
-    }
-
-    // Škáluje 32bitovou barvu podle jasu
-    uint32_t scaleColor(uint32_t color, uint8_t brightness) {
-        uint8_t r = ((color >> 16) & 0xFF) * brightness / 255;
-        uint8_t g = ((color >> 8) & 0xFF) * brightness / 255;
-        uint8_t b = (color & 0xFF) * brightness / 255;
-        return (r << 16) | (g << 8) | b;
-    }
-
-    // Nastaví barvu pro LED daného stupně s určitým jasem
-    void setStepColor(uint8_t step, uint32_t color, uint8_t brightness) {
-        uint16_t startIndex = getStepStartIndex(step);
-        for (uint16_t i = 0; i < ledsPerStep; i++) {
-            uint16_t pixelIndex = startIndex + i;
-            if (pixelIndex < strip.getLengthTotal()) {
-                strip.setPixelColor(pixelIndex, scaleColor(color, brightness));
-            }
-        }
-    }
-
-    // Nastaví okrajové LED (první a poslední) daného stupně s určitou barvou a jasem
-    void setEdgeLEDs(uint8_t step, uint32_t color, uint8_t brightness) {
-        uint16_t startIndex = getStepStartIndex(step);
-        if (startIndex < strip.getLengthTotal()) {
-            strip.setPixelColor(startIndex, scaleColor(color, brightness)); // První LED
-        }
-        if (startIndex + ledsPerStep - 1 < strip.getLengthTotal()) {
-            strip.setPixelColor(startIndex + ledsPerStep - 1, scaleColor(color, brightness)); // Poslední LED
-        }
-    }
-
-    // Aktualizuje efekt přechodu pro všechny aktivní stupně
-    void updateFade() {
-        if (millis() - lastTime < fadeDelay) return;
-
-        lastTime = millis();
-        for (uint8_t step = 0; step < numSteps; step++) {
-            if (!isActive[step]) continue;
-
-            uint8_t& brightness = currentBrightness[step];
-            if (isFadingIn[step]) {
-                brightness = min(brightness + fadeIncrement, 255);
-            } else {
-                brightness = max(brightness - fadeIncrement, 0);
-            }
-
-            setStepColor(step, fadeColor, brightness);
-
-            if (brightness == 255 || brightness == 0) {
-                isFadingIn[step] = false;
-                if (brightness == 0) {
-                    setEdgeLEDs(step, edgeColor, 255); // Obnoví okrajové LED při zhasínání
-                    isActive[step] = false;
-                }
-            }
-        }
-        strip.trigger(); // Aplikuje změny na LED pásku
-    }
-
+//comment this out if you want the turn off effect to be just fading out instead of reverse wipe
+//#define STAIRCASE_WIPE_OFF
   public:
-    void setup() override {
-      // Inicializace
-      Serial.println("Usermod setup initialized.");
-    }
+void setup() {
+  //This method is called once when WLED is connected to WiFi
+  //Use it to initialize your usermod
+}
 
-    void loop() override {
-      // Podmíněný ladicí výstup: pouze při změně
-      if (wipeState != lastWipeState || userVar0 != lastUserVar0 || previousUserVar0 != lastPreviousUserVar0) {
-        unsigned long stateDuration = millis() - stateStartTime; // Doba trvání předchozího stavu
-        Serial.println((String)"Aktuální stav: userVar0: " + userVar0 +
-                       ", previousUserVar0: " + previousUserVar0 +
-                       ", wipeState: " + wipeState +
-                       ", Trvání stavu: " + stateDuration + " ms");
-        lastWipeState = wipeState;
-        lastUserVar0 = userVar0;
-        lastPreviousUserVar0 = previousUserVar0;
-        stateStartTime = millis(); // Aktualizace času pro nový stav
-      }
+    void loop() {
+  //userVar0 (U0 in HTTP API):
+  //has to be set to 1 if movement is detected on the PIR that is the same side of the staircase as the ESP8266
+  //has to be set to 2 if movement is detected on the PIR that is the opposite side
+  //can be set to 0 if no movement is detected. Otherwise LEDs will turn off after a configurable timeout (userVar1 seconds)
+//  if (prvni_vypis) {
+//    Serial.println((String)"Start:");
+//    Serial.println((String)"userVar0:"+userVar0+" previousUserVar0:"+previousUserVar0+" wipeState:"+wipeState);
+//    prvni_vypis = 0;
+//  }
+//  if ((previousUserVar0 != puv0) || (userVar0 != uv0) || (wipeState != wipest)) {
+//    Serial.println();
+//    if (userVar0 != uv0) Serial.println((String)"Zmena> userVar0 z:"+uv0+" na:"+userVar0);
+//    Serial.println((String)"D> userVar0:"+userVar0+" previousUserVar0:"+previousUserVar0+" wipeState:"+wipeState);
+//    puv0 = previousUserVar0;
+//    uv0 = userVar0;
+//    wipest = wipeState;
+//  }
 
-      // Logika efektů
+  if (userVar0 > 0)
+  {
+    if ((previousUserVar0 == 1 && userVar0 == 2) || (previousUserVar0 == 2 && userVar0 == 1)) wipeState = 3; //turn off if other PIR triggered
+    previousUserVar0 = userVar0;
+  } else {
+    resetuj();
+  }    
+  switch(wipeState) {
+    case 0: {
       if (userVar0 > 0) {
-        if ((previousUserVar0 == 1 && userVar0 == 2) || (previousUserVar0 == 2 && userVar0 == 1))
-          wipeState = 3; // Přepnutí na vypnutí při změně směru
-        previousUserVar0 = userVar0;
-      } else {
-        resetuj();
+        startWipe();
+        wipeState = 1;
+        break;
       }
-
-      // Zpracování stavu
-      switch(wipeState) {
-        case 0: { // Neaktivní
-          if (userVar0 > 0) {
-            startWipe();
-            wipeState = 1;
-          }
-          break;
-        }
-        case 1: { // Stírání
-            updateFade();
-            break;
-        }
-        case 2: { // Statický efekt
-          if (userVar1 > 0) { // Časovač
-            if (millis() - timeStaticStart > userVar1 * 1000)
-              wipeState = 3;
-          }
-          break;
-        }
-        case 3: { // Přepnutí na vypnutí
-          effectCurrent = FX_MODE_COLOR_WIPE;
-          strip.timebase = 360 + (255 - effectSpeed) * 75 - millis(); // Správné načasování
+    }
+    case 1: {
+      if (userVar0 > 0) {
+        //wiping
+ //       Serial.print((String)"1");
+        uint32_t cycleTime = 360 + (255 - effectSpeed)*75; //this is how long one wipe takes (minus 25 ms to make sure we switch in time)
+        if (millis() + strip.timebase > (cycleTime - 25)) { //wipe complete
+          effectCurrent = FX_MODE_STATIC;
+          timeStaticStart = millis();
           colorUpdated(CALL_MODE_NOTIFICATION);
-          wipeState = 4;
-          break;
+          wipeState = 2;
         }
-        default: {
-          if (millis() + strip.timebase > (725 + (255 - effectSpeed) * 150))
-            turnOff(); // Dokončení vypnutí
-          if (userVar0 != 6) {
-            userVar0 = previousUserVar0;
-            wipeState = 0;
-          }
-          break;
-        }
+        break;
       }
     }
+    case 2: {
+      if (userVar0 > 0) {
+        //static
+ //       Serial.print((String)"2");
+        if (userVar1 > 0) //if U1 is not set, the light will stay on until second PIR or external command is triggered
+        {
+          if (millis() - timeStaticStart > userVar1*1000) wipeState = 3;
+        }
+        break;
+      }
+    }
+    case 3: {
+      if (userVar0 > 0) {
+        //switch to wipe off
+ //       Serial.print((String)"----------------------------------------------------------------------------------------------------------------------------------------------------");
+        // #ifdef STAIRCASE_WIPE_OFF
+        effectCurrent = FX_MODE_COLOR_WIPE;
+        strip.timebase = 360 + (255 - effectSpeed)*75 - millis(); //make sure wipe starts fully lit
+        colorUpdated(CALL_MODE_NOTIFICATION);
+        wipeState = 4;
+        // #else
+        // turnOff();
+        // #endif
+        break;
+      }
+    }
+    default: {
+      if (userVar0 > 0) {
+        
+        
+ //       Serial.print((String)"x");
+        if (millis() + strip.timebase > (725 + (255 - effectSpeed)*150)) turnOff(); //wipe complete
+        if (userVar0 != 6) { userVar0 = previousUserVar0; wipeState = 0; }
+        break;
+      }
+    }
+  }
+}
 
-    void readFromJsonState(JsonObject& root) override {
-      userVar0 = root["user0"] | userVar0; // Pokud existuje klíč "user0" v JSONu, aktualizuje, jinak ponechá starou hodnotu.
+    void readFromJsonState(JsonObject& root)
+    {
+      userVar0 = root["user0"] | userVar0; //if "user0" key exists in JSON, update, else keep old value
+      //if (root["bri"] == 255) Serial.println(F("Don't burn down your garage!"));
     }
 
-    uint16_t getId() override {
+    uint16_t getId()
+    {
       return USERMOD_ID_EXAMPLE;
     }
 
-    void resetuj() {
-      wipeState = 0;
+    void resetuj()
+    {
+      wipeState = 0; //reset for next time
       if (previousUserVar0) {
         #ifdef STAIRCASE_WIPE_OFF
-        userVar0 = 6; // Speciální hodnota pro wipeState 4
+ //       Serial.println((String)"R+start:");
+ //       Serial.println((String)"userVar0:"+userVar0+" previousUserVar0:"+previousUserVar0+" wipeState:"+wipeState);
+        // userVar0 = previousUserVar0;
+        userVar0 = 6; //neco jineho ve vyznamu 0, testuji v case 4: (default), pokud bude neco jineho menim wipestate
         wipeState = 3;
         #else
         turnOff();
         #endif
-        previousUserVar0 = 0;
+//       Serial.println((String)"R+end:");
+//       Serial.println((String)"userVar0:"+userVar0+" previousUserVar0:"+previousUserVar0+" wipeState:"+wipeState);
+        // Serial.print((String)"r+");
       }
+      previousUserVar0 = 0;
+//     Serial.print((String)"r-");
     }
 
-    void startWipe() {
-      applyPreset(2, true);
-      bri = briLast; // Zapnutí světel
-      strip.setTransition(0); // Bez přechodu
-      effectCurrent = FX_MODE_COLOR_WIPE;
-      effectSpeed = 240;
-      strip.resetTimebase(); // Správné načasování
-
-      // Nastavení směru
-      Segment& seg = strip.getSegment(0);
-      bool doReverse = (userVar0 == 2);
-      seg.setOption(1, doReverse);
-
-      colorUpdated(CALL_MODE_NOTIFICATION);
-
-      // Ladicí výstupy
-      Serial.println("Efekt stírání spuštěn.");
-      Serial.println((String)"Jas: " + bri + ", Rychlost: " + effectSpeed + ", Směr: " + (doReverse ? "Reverzní" : "Normální"));
-      Serial.println((String)"Přechod: " + strip.getTransition() + ", Aktuální efekt: " + effectCurrent);
+void startWipe() {
+    // Nastavení základních parametrů
+    strip.setTransition(0);
+    effectCurrent = FX_MODE_COLOR_WIPE;
+    effectSpeed = 240;
+    bri = 10;             // Fixed brightness
+    
+    // Nastavení segmentu s mirror parametrem
+    Segment& seg = strip.getSegment(0);
+    seg.start = 0;
+    seg.stop = 900;
+    seg.grouping = 60;
+    seg.spacing = 0;
+    seg.offset = 0;
+    seg.mode = FX_MODE_COLOR_WIPE;
+    
+    // Nastavení barvy na bílou
+uint32_t white = RGBW32(255, 255, 255, 0);  // Vytvoření bílé barvy
+seg.colors[0] = white;          // Bílá
+seg.colors[1] = 0x000000;       // Sekundární barva (neaktivní)
+seg.colors[2] = 0x000000;       // Terciární barva (neaktivní)
+    
+    seg.mirror = false;    
+    seg.reverse = false;
+    
+    // Vypnout ostatní segmenty
+    for(uint8_t i = 1; i < strip.getMaxSegments(); i++) {
+        strip.setSegment(i, 0, 0, 0, 0, 0, false);
     }
+    
+    strip.resetTimebase();
+    // Remove bri = briLast to keep initial brightness
+    
+    // Nastavení směru
+    bool doReverse = (userVar0 == 2);
+    seg.setOption(1, doReverse);
+    
+    colorUpdated(CALL_MODE_NOTIFICATION);
+}
 
     void turnOff() {
-      #ifdef STAIRCASE_WIPE_OFF
-      strip.setTransition(0); // Okamžité vypnutí po dokončení stírání.
-      #else
-      strip.setTransition(4000); // Pomalu zeslabující efekt.
-      #endif
-      bri = 0;
-      applyPreset(3, true);
-      colorUpdated(CALL_MODE_NOTIFICATION);
-      wipeState = 0;
-      userVar0 = 0;
-      previousUserVar0 = 0;
+    #ifdef STAIRCASE_WIPE_OFF
+    strip.setTransition(0);          // No transition
+    effectCurrent = FX_MODE_COLOR_WIPE;
+    effectSpeed = 120;               // Half speed of startWipe
+    
+    // Nastavení segmentu pro vypínání
+    Segment& seg = strip.getSegment(0);
+    seg.mode = FX_MODE_COLOR_WIPE;
+    seg.speed = 120;      // Explicitní nastavení rychlosti segmentu
+    
+    bri = 0;
+    colorUpdated(CALL_MODE_NOTIFICATION);
+    
+    // Kontrola zda LED skutečně zhasly
+    if (strip.getBrightness() == 0) {
+        wipeState = 0;
+        userVar0 = 0;
+        previousUserVar0 = 0;
+        applyPreset(3, true);
     }
-
-    // Statické řetězce pro ušetření paměti flash
-    static const char _name[];
-    static const char _enabled[];
-
-    // Deklarace statické metody pro publikování MQTT zprávy
-    static void publishMqtt(const char* state, bool retain);
-};
-
-// Definice statických řetězců
-const char StairwayWipeUsermod::_name[]    PROGMEM = "StairwayWipeUsermod";
-const char StairwayWipeUsermod::_enabled[] PROGMEM = "enabled";
-
-// Implementace statické metody pro publikování MQTT zprávy
-void StairwayWipeUsermod::publishMqtt(const char* state, bool retain) {
-#ifndef WLED_DISABLE_MQTT
-  // Zkontrolujte, zda je MQTT připojeno, jinak by to mohlo způsobit pád 8266
-  if (WLED_MQTT_CONNECTED) {
-    char subuf[64];
-    strcpy(subuf, mqttDeviceTopic);
-    strcat_P(subuf, PSTR("/example"));
-    mqtt->publish(subuf, 0, retain, state);
-  }
-#endif
+    #else
+    strip.setTransition(4000);
+    bri = 0;
+    colorUpdated(CALL_MODE_NOTIFICATION);
+    wipeState = 0;
+    userVar0 = 0;
+    previousUserVar0 = 0;
+    #endif
 }
+
+   //More methods can be added in the future, this example will then be extended.
+   //Your usermod will remain compatible as it does not need to implement all methods from the Usermod base class!
+};
